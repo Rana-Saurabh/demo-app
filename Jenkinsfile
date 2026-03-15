@@ -6,19 +6,17 @@ pipeline {
         AWS_ACCOUNT = "761018892317"
         REGION = "ap-south-1"
         REPO = "jenkins-demo"
+        CLUSTER = "jenkins-demo-cluster"
+        SERVICE = "jenkins-demo-service"
+        TASK_FAMILY = "default-jenkins-demo-048d"
+        IMAGE = "$AWS_ACCOUNT.dkr.ecr.$REGION.amazonaws.com/$REPO:latest"
     }
 
     stages {
 
-        stage('Clone Repo') {
-            steps {
-                echo "Code already checked out by Jenkins"
-            }
-        }
-
         stage('Build Docker Image') {
             steps {
-                sh 'docker build -t jenkins-demo .'
+                sh 'docker build -t jenkins-demo:latest .'
             }
         }
 
@@ -32,24 +30,52 @@ pipeline {
             }
         }
 
-        stage('Push Image') {
+        stage('Tag Image') {
             steps {
                 sh '''
-                docker tag jenkins-demo:latest \
-                $AWS_ACCOUNT.dkr.ecr.$REGION.amazonaws.com/$REPO:latest
-
-                docker push \
-                $AWS_ACCOUNT.dkr.ecr.$REGION.amazonaws.com/$REPO:latest
+                docker tag jenkins-demo:latest $IMAGE
                 '''
             }
         }
 
-        stage('Deploy') {
+        stage('Push Image') {
+            steps {
+                sh '''
+                docker push $IMAGE
+                '''
+            }
+        }
+
+        stage('Register New Task Definition') {
+            steps {
+                sh '''
+                TASK_DEF=$(aws ecs describe-task-definition \
+                --task-definition $TASK_FAMILY)
+
+                NEW_TASK_DEF=$(echo $TASK_DEF | jq \
+                --arg IMAGE "$IMAGE" \
+                '.taskDefinition |
+                {
+                    family: .family,
+                    networkMode: .networkMode,
+                    containerDefinitions: (.containerDefinitions | map(.image=$IMAGE)),
+                    requiresCompatibilities: .requiresCompatibilities,
+                    cpu: .cpu,
+                    memory: .memory
+                }')
+
+                aws ecs register-task-definition \
+                --cli-input-json "$NEW_TASK_DEF"
+                '''
+            }
+        }
+
+        stage('Deploy to ECS') {
             steps {
                 sh '''
                 aws ecs update-service \
-                --cluster default \
-                --service jenkins-demo-048d \
+                --cluster $CLUSTER \
+                --service $SERVICE \
                 --force-new-deployment
                 '''
             }
