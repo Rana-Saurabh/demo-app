@@ -48,8 +48,8 @@ pipeline {
             steps {
                 sh '''
                 aws ecs update-service \
-                --cluster jenkins-demo-cluster \
-                --service jenkins-demo-service \
+                --cluster default \
+                --service jenkins-demo-048d \
                 --force-new-deployment
                 '''
             }
